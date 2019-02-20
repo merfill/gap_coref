@@ -88,26 +88,31 @@ def model_fn(features, labels, mode, params):
     ccs_embedding = tf.nn.embedding_lookup(word_embedding_table, vocab_words.lookup(ccs))
 
     # multilayer bidirectional rnn
-    def create_rnn(data, data_len, scope_name):
-        with tf.variable_scope(None, scope_name):
-            # create bidirectional rnn
-            cell_fw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.GRUCell(params['dim']) for _ in range(params['layers'])])
-            cell_bw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.GRUCell(params['dim']) for _ in range(params['layers'])])
-            _, states = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, data, sequence_length=data_len, dtype=tf.float32)
+    def create_rnn(data, data_len, scope, reuse):
+        # create bidirectional rnn
+        cell_fw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.GRUCell(params['dim']) for _ in range(params['layers'])])
+        cell_bw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.GRUCell(params['dim']) for _ in range(params['layers'])])
+        _, states = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, data, sequence_length=data_len, dtype=tf.float32, scope=scope)
 
-            # prepare state
-            state_fw, state_bw = states
-            cells = []
-            for fw, bw in zip(state_fw, state_bw):
-                state = tf.concat([fw, bw], axis=-1)
-                cells += [tf.layers.dense(state, params['dim'])]
+        # prepare state
+        state_fw, state_bw = states
+        cells = []
+        for fw, bw in zip(state_fw, state_bw):
+            state = tf.concat([fw, bw], axis=-1)
+            cells += [tf.layers.dense(state, params['dim'], reuse=reuse)]
 
         return tf.concat(cells, axis=-1)
 
-    ps_state = create_rnn(ps_embedding, ps_len, 'ps')
-    pcs_state = create_rnn(pcs_embedding, pcs_len, 'pcs')
-    cs_state = create_rnn(cs_embedding, cs_len, 'cs')
-    ccs_state = create_rnn(ccs_embedding, ccs_len, 'ccs')
+    with tf.variable_scope('mention-rnn') as scope:
+        ps_state = create_rnn(ps_embedding, ps_len, scope, False)
+        scope.reuse_variables()
+        cs_state = create_rnn(cs_embedding, cs_len, scope, True)
+
+    with tf.variable_scope('context-rnn') as scope:
+        pcs_state = create_rnn(pcs_embedding, pcs_len, scope, False)
+        scope.reuse_variables()
+        ccs_state = create_rnn(ccs_embedding, ccs_len, scope, True)
+
     dense = tf.layers.dense(tf.concat([ps_state, pcs_state, cs_state, ccs_state], axis=-1), params['dence_dim'])
     dropout = tf.layers.dropout(inputs=dense, rate=params['dropout'], training=mode == tf.estimator.ModeKeys.TRAIN)
     logits = tf.layers.dense(dropout, 2)
