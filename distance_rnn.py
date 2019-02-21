@@ -15,7 +15,7 @@ import tensorflow as tf
 
 
 DATADIR = './data'
-RESULTSDIR = './rnn_results'
+RESULTSDIR = './distance_rnn_results'
 
 
 def mkdir(path):
@@ -113,19 +113,22 @@ def model_fn(features, labels, mode, params):
         scope.reuse_variables()
         ccs_state = create_rnn(ccs_embedding, ccs_len, scope, True)
 
-    dense = tf.layers.dense(tf.concat([ps_state, pcs_state, cs_state, ccs_state], axis=-1), params['dence_dim'])
-    dropout = tf.layers.dropout(inputs=dense, rate=params['dropout'], training=mode == tf.estimator.ModeKeys.TRAIN)
-    logits = tf.layers.dense(dropout, 2)
+    pronoun = tf.layers.dense(tf.concat([ps_state, pcs_state], axis=-1), params['dence_dim'])
+    coref = tf.layers.dense(tf.concat([cs_state, ccs_state], axis=-1), params['dence_dim'])
+    distance = tf.norm(pronoun - coref, axis=-1)
+    #dropout = tf.layers.dropout(inputs=dense, rate=params['dropout'], training=mode == tf.estimator.ModeKeys.TRAIN)
 
     predictions = {
-        "classes": tf.argmax(input=logits, axis=1),
-        "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
+        "distance": distance,
+        "class": tf.math.less(distance, tf.constant(.5)),
     }
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
-    loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
+    print_op = tf.print('tensors: ', distance, labels, output_stream=sys.stderr)
+    #with tf.control_dependencies([print_op]):
+    loss = tf.losses.mean_squared_error(labels=labels, predictions=distance)
 
     if mode == tf.estimator.ModeKeys.TRAIN:
         optimizer = tf.train.AdamOptimizer(learning_rate=params.get('lr', .001))
@@ -133,7 +136,7 @@ def model_fn(features, labels, mode, params):
         return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
 
     eval_metric_ops = {
-        "acc": tf.metrics.accuracy(labels=labels, predictions=predictions["classes"])
+        "acc": tf.metrics.accuracy(labels=labels, predictions=predictions["class"])
     }
     return tf.estimator.EstimatorSpec(mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
 
@@ -141,15 +144,15 @@ def model_fn(features, labels, mode, params):
 if __name__ == '__main__':
     # Params
     params = {
-        'dim': 256,
-        'dence_dim': 1024,
+        'dim': 128,
+        'dence_dim': 512,
         'lr': .001,
         'clip': .5,
         'char_embedding_size': 128,
         'word_embedding_size': 256,
         'max_iters': 50,
         'dropout': 0.4,
-        'layers': 5,
+        'layers': 3,
         'num_oov_buckets': 3,
         'epochs': 5,
         'batch_size': 20,
@@ -161,8 +164,8 @@ if __name__ == '__main__':
 
 
     # Estimator, train and evaluate
-    train_inpf = functools.partial(input_fn, os.path.join(DATADIR, 'validation.tsv'), params)
-    eval_inpf = functools.partial(input_fn, os.path.join(DATADIR, 'dev.tsv'))
+    train_inpf = functools.partial(input_fn, os.path.join(DATADIR, 'dev.tsv'), params)
+    eval_inpf = functools.partial(input_fn, os.path.join(DATADIR, 'validation.tsv'))
 
     cfg = tf.estimator.RunConfig(save_checkpoints_secs=120)
     estimator = tf.estimator.Estimator(model_fn, RESULTSDIR + '/model', cfg, params)
@@ -184,7 +187,7 @@ if __name__ == '__main__':
         for golds, preds in zip(golds_gen, preds_gen):
             (_, (target)) = golds
             alls += 1
-            if preds['classes'] != target:
+            if preds['class'] != target:
                 err += 1
         print('alls: ', alls)
         print('errs: ', err)
