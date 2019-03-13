@@ -26,8 +26,8 @@ def to_file(input_path, output_path):
     res_df = pd.DataFrame(columns=['ID', 'Pronoun', 'Pronoun-context', 'Coref', 'Coref-context', 'Score'])
     df = pd.read_csv(input_path, sep='\t', encoding='utf8')
     for _, row in df.iterrows():
-        res_df.loc[len(res_df)] = [row['ID'], row['Pronoun'], get_data(row['Text'], row['Pronoun-offset'], 5), row['A'], get_data(row['Text'], row['A-offset'], 5), row['A-coref']]
-        res_df.loc[len(res_df)] = [row['ID'], row['Pronoun'], get_data(row['Text'], row['Pronoun-offset'], 5), row['B'], get_data(row['Text'], row['B-offset'], 5), row['B-coref']]
+        res_df.loc[len(res_df)] = [row['ID'] + '-A', row['Pronoun'], get_data(row['Text'], row['Pronoun-offset'], 3), row['A'], get_data(row['Text'], row['A-offset'], 3), row['A-coref']]
+        res_df.loc[len(res_df)] = [row['ID'] + '-B', row['Pronoun'], get_data(row['Text'], row['Pronoun-offset'], 3), row['B'], get_data(row['Text'], row['B-offset'], 3), row['B-coref']]
     res_df.to_csv(output_path, sep='\t', index=False)
 
 to_file('data/gap-development.tsv', 'data/dev.tsv')

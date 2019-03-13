@@ -40,16 +40,16 @@ logging.getLogger('tensorflow').handlers = handlers
 
 
 def parse_fn(pronoun, pronoun_context, coref, coref_context, label):
-    ps = [c.encode('utf8') for c in pronoun.decode('utf8').rstrip('\n')]
-    pcs = [w.encode('utf8') for w in nltk.word_tokenize(pronoun_context.decode('utf8').strip())]
-    cs = [c.encode('utf8') for c in coref.decode('utf8').rstrip('\n')]
-    ccs = [w.encode('utf8') for w in nltk.word_tokenize(coref_context.decode('utf8').strip())]
+    ps = [c for c in pronoun.rstrip('\n')]
+    pcs = [w for w in nltk.word_tokenize(pronoun_context) if w.isalpha()]
+    cs = [c for c in coref.rstrip('\n')]
+    ccs = [w for w in nltk.word_tokenize(coref_context)  if w.isalpha()]
     t = 0 if label == 'False' else 1
     return ((ps, len(ps)), (pcs, len(pcs)), (cs, len(cs)), (ccs, len(ccs))), (t)
 
 
 def generator_fn(data_file):
-    with open(data_file, 'rb') as f:
+    with open(data_file, 'rt', encoding='utf-8') as f:
         reader = csv.DictReader(f, delimiter='\t', quotechar='"')
         for row in reader:
             yield parse_fn(row['Pronoun'], row['Pronoun-context'], row['Coref'], row['Coref-context'], row['Score'])
