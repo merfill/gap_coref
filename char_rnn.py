@@ -121,7 +121,8 @@ def model_fn(features, labels, mode, params):
             ((_, state_fw), (_, state_bw)) = states
             output = tf.concat([state_fw, state_bw], axis=-1)
 
-        return tf.reshape(output, shape=[s[0], s[1], 2*params['char_dim']])
+        out = tf.reshape(output, shape=[s[0], s[1], 2*params['char_dim']])
+        return tf.layers.dropout(inputs=out, rate=.4, training=mode == tf.estimator.ModeKeys.TRAIN)
 
     # char rnns
     p_chars = create_char_rnn(p_embedding, p_clen, 'p-char-rnn')
@@ -142,17 +143,35 @@ def model_fn(features, labels, mode, params):
                 state = tf.concat([fw, bw], axis=-1)
                 cells += [tf.layers.dense(state, params['word_dim'])]
 
-        return tf.concat(cells, axis=-1)
+        return tf.layers.dropout(inputs=tf.concat(cells, axis=-1), rate=.4, training=mode == tf.estimator.ModeKeys.TRAIN)
 
     p_state = create_word_rnn(p_chars, p_wlen, 'p-word-rnn')
     pc_state = create_word_rnn(pc_chars, pc_wlen, 'pc-word-rnn')
     c_state = create_word_rnn(c_chars, c_wlen, 'c-word-rnn')
     cc_state = create_word_rnn(cc_chars, cc_wlen, 'cc-word-rnn')
 
-    p_vector = tf.layers.dense(tf.concat([p_state, pc_state], axis=-1), params['dence_dim'])
+    def add_dense_layer(inputs, shape, name, rate=.4):
+        Z = tf.layers.dense(inputs, shape, name=name, activation=None)
+        Zt = tf.layers.batch_normalization(Z, training=mode == tf.estimator.ModeKeys.TRAIN)
+        A = tf.nn.relu(Zt)
+        return tf.layers.dropout(inputs=A, rate=rate, training=mode == tf.estimator.ModeKeys.TRAIN)
+
+    pd1 = add_dense_layer(tf.concat([p_state, pc_state], axis=-1), params['dence_dim'], 'pd1', .4)
+    pd2 = add_dense_layer(pd1, 2*params['dence_dim'], 'pd2', .5)
+    pd3 = add_dense_layer(pd2, 4*params['dence_dim'], 'pd3', .6)
+    pd4 = add_dense_layer(pd3, 2*params['dence_dim'], 'pd4', .7)
+    pd5 = add_dense_layer(pd4, params['dence_dim'], 'pd5', .8)
+
+    cd1 = add_dense_layer(tf.concat([c_state, cc_state], axis=-1), params['dence_dim'], 'cd1', .4)
+    cd2 = add_dense_layer(cd1, 2*params['dence_dim'], 'cd2', .5)
+    cd3 = add_dense_layer(cd2, 4*params['dence_dim'], 'cd3', .6)
+    cd4 = add_dense_layer(cd3, 2*params['dence_dim'], 'cd4', .7)
+    cd5 = add_dense_layer(cd4, params['dence_dim'], 'cd5', .8)
+
     c_vector = tf.layers.dense(tf.concat([c_state, cc_state], axis=-1), params['dence_dim'])
+    p_vector = tf.layers.dense(tf.concat([p_state, pc_state], axis=-1), params['dence_dim'])
     #prediction = tf.reduce_sum(tf.squared_difference(p_vector, c_vector), axis=-1)
-    dense = tf.layers.dense(tf.concat([p_vector, c_vector], axis=-1), params['dence_dim'])
+    dense = tf.layers.dense(tf.concat([c_vector, p_vector], axis=-1), params['dence_dim'])
     logits = tf.layers.dense(dense, 2)
 
     #print_op = tf.print(tf.shape(prediction), prediction, tf.greater_equal(prediction, .5))
